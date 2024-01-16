@@ -1,11 +1,12 @@
-use blstrs::Bls12;
-use blstrs::G1Affine;
-use blstrs::G1Projective;
-use blstrs::G2Affine;
-use blstrs::G2Projective;
-use blstrs::Gt;
-use blstrs::Scalar;
+use bls12_381::Bls12;
+use bls12_381::G1Affine;
+use bls12_381::G1Projective;
+use bls12_381::G2Affine;
+use bls12_381::G2Projective;
+use bls12_381::Gt;
+use bls12_381::Scalar;
 
+use ff::Field;
 use group::Curve;
 use pairing::Engine;
 
@@ -69,20 +70,22 @@ impl std::ops::Add for BlsElement {
                 return BlsElement::Scalar(element1 + element2);
             }
         }
-        if let BlsElement::G1Affine(element1) = self {
-            if let BlsElement::G1Affine(element2) = rhs {
-                let element2projective =
-                    G1Projective::from_compressed(&element2.to_compressed()).unwrap();
-                return BlsElement::G1Affine((element1 + element2projective).to_affine());
-            }
-        }
-        if let BlsElement::G2Affine(element1) = self {
-            if let BlsElement::G2Affine(element2) = rhs {
-                let element2projective =
-                    G2Projective::from_compressed(&element2.to_compressed()).unwrap();
-                return BlsElement::G2Affine((element1 + element2projective).to_affine());
-            }
-        }
+
+        // if let BlsElement::G1Affine(element1) = self {
+        //     if let BlsElement::G1Affine(element2) = rhs {
+        //         let element2projective =
+        //             G1Projective::from_compressed(&element2.to_compressed()).unwrap();
+        //         return BlsElement::G1Affine((element1 + element2projective).to_affine());
+        //     }
+        // }
+        // if let BlsElement::G2Affine(element1) = self {
+        //     if let BlsElement::G2Affine(element2) = rhs {
+        //         let element2projective =
+        //             G2Projective::from_compressed(&element2.to_compressed()).unwrap();
+        //         return BlsElement::G2Affine((element1 + element2projective).to_affine());
+        //     }
+        // }
+
         if let BlsElement::Gt(element1) = self {
             if let BlsElement::Gt(element2) = rhs {
                 return BlsElement::Gt(element1 + element2);

@@ -1,15 +1,13 @@
-use blstrs::Bls12;
-use blstrs::G1Affine;
-use blstrs::G1Projective;
-use blstrs::G2Affine;
-use blstrs::G2Projective;
-use blstrs::Gt;
-use blstrs::Scalar;
+use bls12_381::Bls12;
+use bls12_381::G1Affine;
+use bls12_381::G1Projective;
+use bls12_381::G2Affine;
+use bls12_381::G2Projective;
+use bls12_381::Gt;
+use bls12_381::Scalar;
 
-use group::ff::Field;
-use group::prime::PrimeCurveAffine;
+use ff::Field;
 use group::Curve;
-use group::Group;
 use pairing::Engine;
 
 use nalgebra::DMatrix;
@@ -17,10 +15,8 @@ use nalgebra::DMatrix;
 use crate::bls_elements::*;
 use crate::linear_fc::*;
 
-pub fn gen_gamma_linear_fc(cm: G1Projective, ck: &CommitmentKey) -> DMatrix<BlsElement> {
+pub fn gen_gamma_linear_fc(cm: &G1Projective, ck: &CommitmentKey) -> DMatrix<BlsElement> {
     let cm_b = BlsElement::G1Affine(cm.to_affine());
-    // let g1_1 = BlsElement::G1Affine(G1Affine::identity());
-    // let g2_1 = BlsElement::G2Affine(G2Affine::identity());
     let u2 = BlsElement::G2Affine(ck.u2[0].to_affine());
 
     let gamma = DMatrix::from_row_slice(1, 2, vec![cm_b, u2].as_slice());

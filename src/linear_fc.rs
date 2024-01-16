@@ -1,13 +1,11 @@
-use blstrs::Bls12;
-use blstrs::G1Projective;
-use blstrs::G2Affine;
-use blstrs::G2Projective;
-use blstrs::Scalar;
+use bls12_381::Bls12;
+use bls12_381::G1Projective;
+use bls12_381::G2Affine;
+use bls12_381::G2Projective;
+use bls12_381::Scalar;
 
-use group::ff::Field;
-use group::prime::PrimeCurveAffine;
+use ff::Field;
 use group::Curve;
-use group::Group;
 use pairing::Engine;
 use std::iter;
 
@@ -24,13 +22,13 @@ pub fn setup_unsafe(n: u64) -> CommitmentKey {
     let u = Scalar::random(&mut rng);
 
     let mut u1: Vec<G1Projective> = (0..2 * n)
-        .map(|j| G1Projective::generator() * u.pow_vartime(&[j + 1]))
+        .map(|j| G1Projective::generator() * u.pow(&[j + 1, 0, 0, 0]))
         .collect();
     // set trapdoor value to zero so opening proof works correctly
     u1[n as usize] = G1Projective::identity();
 
     let u2: Vec<G2Projective> = (0..n)
-        .map(|j| G2Projective::generator() * u.pow_vartime(&[j + 1]))
+        .map(|j| G2Projective::generator() * u.pow_vartime(&[j + 1, 0, 0, 0]))
         .collect();
 
     CommitmentKey { u1, u2 }

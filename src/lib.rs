@@ -1,23 +1,23 @@
 mod bls_elements;
+mod encrypt;
 mod linear_fc;
-mod sphf;
 
+use bls12_381::G1Projective;
+use bls12_381::G2Projective;
+use bls12_381::Gt;
+use bls12_381::Scalar;
 use bls_elements::BlsElement;
-use blstrs::G1Projective;
-use blstrs::G2Projective;
-use blstrs::Gt;
-use blstrs::Scalar;
 
 use bitvec::prelude::Msb0;
 use bitvec::view::BitViewSized;
-use group::Curve;
 use nalgebra::DMatrix;
 use sha3::digest::ExtendableOutput;
 use sha3::digest::Update;
 use sha3::digest::XofReader;
 use sha3::Shake256;
 
-use group::ff::Field;
+use ff::Field;
+use group::Curve;
 
 pub fn encrypt_bit(
     message: bool,
@@ -27,10 +27,10 @@ pub fn encrypt_bit(
 ) -> Result<(bool, DMatrix<BlsElement>, Scalar, Vec<u8>), &'static str> {
     let (cm, r) = linear_fc::commit(&ck, &x);
 
-    let gamma = sphf::gen_gamma_linear_fc(cm, &ck);
-    let (hash_key, projected_hash_key) = sphf::gen_hash_keys(gamma);
-    let theta = sphf::gen_theta_linear_fc(&ck, y);
-    let hash = sphf::gen_verifier_hash(hash_key, theta);
+    let gamma = encrypt::gen_gamma_linear_fc(&cm, &ck);
+    let (hash_key, projected_hash_key) = encrypt::gen_hash_keys(gamma);
+    let theta = encrypt::gen_theta_linear_fc(&ck, y);
+    let hash = encrypt::gen_verifier_hash(hash_key, theta);
     let mut r2: Vec<u8> = vec![];
     for _ in 0..linear_fc::LENGTH {
         let rand_byte = rand::random::<u8>();
@@ -55,7 +55,7 @@ pub fn decrypt_bit(
     // diverging from the WE_FC paper's implementation
     let ADJUSTMENT_3 = ck.u1[0].to_affine() * beta[1] * x[0]; // G^(u*alpha1*beta2)
 
-    let lambda = sphf::gen_lambda_linear_fc(
+    let lambda = encrypt::gen_lambda_linear_fc(
         ck.u2[1] * beta[0] + ck.u2[0] * beta[1],
         opening - ADJUSTMENT_3,
     );
@@ -97,9 +97,9 @@ mod tests {
         let mut x = vec![Scalar::one(), Scalar::one().double()];
         let mut beta = vec![Scalar::one().double(), Scalar::one()];
         let mut y = linear_fc::compute_func(&x, &beta);
-        println!("x = {:?}", x);
-        println!("beta = {:?}", beta);
-        println!("y = {:?}", y);
+        // println!("x = {:?}", x);
+        // println!("beta = {:?}", beta);
+        // println!("y = {:?}", y);
         let (ciphertext, projected_hash_key, r, r2) =
             encrypt_bit(message, ck.clone(), x.clone(), y).unwrap();
         if !should_succeed {
@@ -111,10 +111,10 @@ mod tests {
     #[test]
     fn encryption_decryption_success() {
         let message = true;
-        // for _ in 0..128 {
-        //     // we're only encrypting a bit, which can be easily randomly correct, so to properly test we should run this often
-        //     assert_eq!(encryption_decryption(true, message), message);
-        // }
-        assert_eq!(encryption_decryption(true, message), message);
+        for _ in 0..128 {
+            // we're only encrypting a bit, which can be easily randomly correct, so to properly test we should run this often
+            assert_eq!(encryption_decryption(true, message), message);
+        }
+        // assert_eq!(encryption_decryption(true, message), message);
     }
 }
