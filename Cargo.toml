@@ -7,11 +7,8 @@ edition = "2021"
 
 [dependencies]
 rand = "0.8.5"
-sha3 = "0.10.6"
-nalgebra = "0.31.4"
-bitvec = "1.0.1"
-bls12_381 = "0.8.0"
-ff = "0.13.0"
-group = "0.13.0"
-pairing = "0.23.0"
-
+ark-std = "0.4.0"
+ark-ff = "0.4.2"
+ark-ec = "0.4.2"
+ark-bls12-381 = "0.4.0"
+ark-serialize = "0.4.2"
