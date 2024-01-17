@@ -7,8 +7,6 @@ use ark_std::{UniformRand, Zero};
 
 use std::iter;
 
-pub const LENGTH: u64 = 256; // Length of hashkey and random bits used to encrypt the message
-
 #[derive(Debug, Clone)]
 pub struct CommitmentKey {
     pub u1: Vec<G1Projective>,
@@ -67,7 +65,7 @@ pub fn open(
     opening
 }
 
-pub fn verification_pairings(
+pub fn verify(
     ckey: &CommitmentKey,
     cm: &G1Projective,
     op: &G1Projective,
@@ -107,7 +105,7 @@ mod test {
             op = op * ScalarField::rand(&mut rng);
         }
 
-        verification_pairings(&ckey, &commit, &op, &beta, y)
+        verify(&ckey, &commit, &op, &beta, y)
     }
 
     #[test]

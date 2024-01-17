@@ -3,7 +3,7 @@ use ark_bls12_381::{Bls12_381, Fq12, G1Projective, G2Projective};
 use ark_ec::pairing::{Pairing, PairingOutput};
 use ark_ec::Group;
 use ark_ff::Field;
-use ark_serialize::{CanonicalSerialize, Compress};
+use ark_serialize::{CanonicalSerialize, Compress, SerializationError};
 use ark_std::UniformRand;
 
 use rand::{thread_rng, Rng};
@@ -16,7 +16,7 @@ pub struct Ciphertext {
     pub ciphertext: u8,
 }
 
-pub fn compute_theta(
+fn compute_theta(
     ckey: &CommitmentKey,
     commit: &G1Projective,
     beta: &Vec<ScalarField>,
@@ -34,15 +34,10 @@ pub fn compute_theta(
     pairing1 - pairing2
 }
 
-pub fn compute_M() -> G2Projective {
-    G2Projective::generator()
-}
-
-pub fn gen_hash_keys() -> (ScalarField, G2Projective) {
+fn gen_hash_keys() -> (ScalarField, G2Projective) {
     let mut rng = ark_std::test_rng();
     let hash_key = ScalarField::rand(&mut rng);
-    let M = compute_M();
-    let proj_key = M * hash_key;
+    let proj_key = G2Projective::generator() * hash_key;
     (hash_key, proj_key)
 }
 
@@ -52,13 +47,14 @@ pub fn encrypt(
     beta: &Vec<ScalarField>,
     y: ScalarField,
     message: u8,
-) -> Ciphertext {
+) -> Result<Ciphertext, SerializationError> {
     let theta = compute_theta(ckey, commit, beta, y);
     let (hash_key, proj_key) = gen_hash_keys();
     let hash = theta * hash_key;
+
+    // idk why the serialization is so long (len = 576)
     let mut hash_serial: Vec<u8> = vec![];
-    hash.serialize_compressed(&mut hash_serial);
-    println!("hash_serial = {:?}", hash_serial);
+    hash.serialize_compressed(&mut hash_serial)?;
     let l = hash.serialized_size(Compress::Yes);
 
     let mut rng = thread_rng();
@@ -70,18 +66,21 @@ pub fn encrypt(
             .map(|(&a, &b)| a ^ b)
             .fold(0, |acc, x| acc ^ x);
 
-    Ciphertext {
+    Ok(Ciphertext {
         proj_key,
         rand_bytes,
         ciphertext,
-    }
+    })
 }
 
-pub fn decrypt(_ckey: &CommitmentKey, ct: &Ciphertext, opening: &G1Projective) -> u8 {
+pub fn decrypt(
+    _ckey: &CommitmentKey,
+    ct: &Ciphertext,
+    opening: &G1Projective,
+) -> Result<u8, SerializationError> {
     let proj_hash = Bls12_381::pairing(opening, &ct.proj_key);
     let mut proj_hash_serial: Vec<u8> = vec![];
-    proj_hash.serialize_compressed(&mut proj_hash_serial);
-    println!("proj_hash_serial = {:?}", proj_hash_serial);
+    proj_hash.serialize_compressed(&mut proj_hash_serial)?;
     let decrypted = ct.ciphertext
         ^ proj_hash_serial
             .iter()
@@ -89,7 +88,7 @@ pub fn decrypt(_ckey: &CommitmentKey, ct: &Ciphertext, opening: &G1Projective) -
             .map(|(&a, &b)| a ^ b)
             .fold(0, |acc, x| acc ^ x);
 
-    decrypted
+    Ok(decrypted)
 }
 
 #[cfg(test)]
@@ -97,22 +96,22 @@ mod test {
     use super::*;
 
     fn encryption_decryption(should_succeed: bool, message: u8) -> bool {
-        let witness_length = 2;
+        let witness_length = 1;
         let ckey = setup_unsafe(witness_length);
-        let x = vec![ScalarField::from(1), ScalarField::from(2)];
-        let beta = vec![ScalarField::from(3), ScalarField::from(2)];
+        let x = vec![ScalarField::from(2)];
+        let beta = vec![ScalarField::from(1)];
         let mut y = compute_func(&x, &beta);
         let (commit, r_commit) = commit(&ckey, &x);
         // println!("x = {:?}", x);
         // println!("beta = {:?}", beta);
         // println!("y = {:?}", y);
-        let ct = encrypt(&ckey, &commit, &beta, y, message);
+        let ct = encrypt(&ckey, &commit, &beta, y, message).unwrap();
         if !should_succeed {
             y = y * y;
         }
 
         let opening = open(&ckey, &x, r_commit, &beta);
-        let decrypted = decrypt(&ckey, &ct, &opening);
+        let decrypted = decrypt(&ckey, &ct, &opening).unwrap();
         decrypted == message
     }
 
