@@ -35,7 +35,7 @@ fn compute_theta(
 }
 
 fn gen_hash_keys() -> (ScalarField, G2Projective) {
-    let mut rng = ark_std::test_rng();
+    let mut rng = rand::thread_rng();
     let hash_key = ScalarField::rand(&mut rng);
     let proj_key = G2Projective::generator() * hash_key;
     (hash_key, proj_key)

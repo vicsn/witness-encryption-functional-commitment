@@ -4,7 +4,7 @@ use ark_ec::pairing::Pairing;
 use ark_ec::Group;
 use ark_ff::Field;
 use ark_std::{UniformRand, Zero};
-
+use rand::thread_rng;
 use std::iter;
 
 #[derive(Debug, Clone)]
@@ -14,7 +14,7 @@ pub struct CommitmentKey {
 }
 
 pub fn setup_unsafe(n: u64) -> CommitmentKey {
-    let mut rng = ark_std::test_rng();
+    let mut rng = rand::thread_rng();
     let u = ScalarField::rand(&mut rng);
 
     let mut u1: Vec<G1Projective> = (0..2 * n)
@@ -35,7 +35,7 @@ pub fn compute_func(x: &Vec<ScalarField>, beta: &Vec<ScalarField>) -> ScalarFiel
 }
 
 pub fn commit(ckey: &CommitmentKey, x: &Vec<ScalarField>) -> (G1Projective, ScalarField) {
-    let mut rng = ark_std::test_rng();
+    let mut rng = rand::thread_rng();
     let r = ScalarField::rand(&mut rng);
     let sum: G1Projective = iter::once(G1Projective::generator() * r)
         .chain(x.iter().zip(ckey.u1.iter()).map(|(&a, &u)| u * a))

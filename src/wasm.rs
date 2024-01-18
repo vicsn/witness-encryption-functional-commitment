@@ -17,16 +17,31 @@ extern "C" {
     fn log(s: &str);
 }
 
-fn copy_vec_to_u8arr(v: &Vec<u8>) -> Uint8Array {
-    let u8_arr = Uint8Array::new_with_length(v.len() as u32);
-    u8_arr.copy_from(v);
-    u8_arr
+#[derive(Serialize, Deserialize)]
+struct CommitmentKeyBytes {
+    u1_bytes: Vec<u8>,
+    u2_bytes: Vec<u8>,
+}
+
+#[wasm_bindgen]
+pub fn setup_unsafe() -> JsValue {
+    let ckey = linear_fc::setup_unsafe(1);
+    let mut u1_bytes: Vec<u8> = vec![];
+    ckey.u1[0]
+        .serialize_compressed(&mut u1_bytes)
+        .expect("serialization should not fail");
+    let mut u2_bytes: Vec<u8> = vec![];
+    ckey.u2[0]
+        .serialize_compressed(&mut u2_bytes)
+        .expect("serialization should not fail");
+
+    serde_wasm_bindgen::to_value(&CommitmentKeyBytes { u1_bytes, u2_bytes }).unwrap()
 }
 
 #[derive(Serialize, Deserialize)]
-struct Commitment {
-    commit: Vec<u8>,
-    r_commit: Vec<u8>,
+struct CommitmentBytes {
+    commit_bytes: Vec<u8>,
+    r_commit_bytes: Vec<u8>,
 }
 
 #[wasm_bindgen]
@@ -42,24 +57,24 @@ pub fn commit(ckey_bytes_1: &[u8], ckey_bytes_2: &[u8], x: u32) -> JsValue {
 
     let x = ScalarField::from(x);
     let (commit, r_commit) = linear_fc::commit(&ckey, &vec![x]);
-    let mut commit_serial: Vec<u8> = vec![];
+    let mut commit_bytes: Vec<u8> = vec![];
     commit
-        .serialize_compressed(&mut commit_serial)
+        .serialize_compressed(&mut commit_bytes)
         .expect("serialization should not fail");
-    let mut r_commit_serial: Vec<u8> = vec![];
+    let mut r_commit_bytes: Vec<u8> = vec![];
     r_commit
-        .serialize_compressed(&mut r_commit_serial)
+        .serialize_compressed(&mut r_commit_bytes)
         .expect("serialization should not fail");
 
-    serde_wasm_bindgen::to_value(&Commitment {
-        commit: commit_serial,
-        r_commit: r_commit_serial,
+    serde_wasm_bindgen::to_value(&CommitmentBytes {
+        commit_bytes,
+        r_commit_bytes,
     })
     .unwrap()
 }
 
 #[derive(Serialize, Deserialize)]
-struct Ciphertext {
+struct CiphertextBytes {
     proj_key_bytes: Vec<u8>,
     rand_bytes: Vec<u8>,
     ciphertext: u8,
@@ -87,13 +102,13 @@ pub fn encrypt(
     let y = ScalarField::from(y);
     let ct_raw = encrypt::encrypt(&ckey, &commit, &vec![ScalarField::from(1)], y, message).unwrap();
 
-    let mut proj_key_serial: Vec<u8> = vec![];
+    let mut proj_key_bytes: Vec<u8> = vec![];
     ct_raw
         .proj_key
-        .serialize_compressed(&mut proj_key_serial)
+        .serialize_compressed(&mut proj_key_bytes)
         .expect("serialization should not fail");
-    let ct_final = Ciphertext {
-        proj_key_bytes: proj_key_serial,
+    let ct_final = CiphertextBytes {
+        proj_key_bytes,
         rand_bytes: ct_raw.rand_bytes,
         ciphertext: ct_raw.ciphertext,
     };
