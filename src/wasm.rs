@@ -58,8 +58,84 @@ pub fn commit(ckey_bytes_1: &[u8], ckey_bytes_2: &[u8], x: u32) -> JsValue {
     .unwrap()
 }
 
-#[wasm_bindgen]
-pub fn encrypt() {}
+#[derive(Serialize, Deserialize)]
+struct Ciphertext {
+    proj_key_bytes: Vec<u8>,
+    rand_bytes: Vec<u8>,
+    ciphertext: u8,
+}
 
 #[wasm_bindgen]
-pub fn decrypt() {}
+pub fn encrypt(
+    ckey_bytes_1: &[u8],
+    ckey_bytes_2: &[u8],
+    commit: &[u8],
+    y: u32,
+    message: u8,
+) -> JsValue {
+    let u1 = G1Projective::deserialize_compressed(ckey_bytes_1)
+        .expect("deserialization should not fail");
+    let u2 = G2Projective::deserialize_compressed(ckey_bytes_2)
+        .expect("deserialization should not fail");
+    let ckey = linear_fc::CommitmentKey {
+        u1: vec![u1],
+        u2: vec![u2],
+    };
+
+    let commit =
+        G1Projective::deserialize_compressed(commit).expect("deserialization should not fail");
+    let y = ScalarField::from(y);
+    let ct_raw = encrypt::encrypt(&ckey, &commit, &vec![ScalarField::from(1)], y, message).unwrap();
+
+    let mut proj_key_serial: Vec<u8> = vec![];
+    ct_raw
+        .proj_key
+        .serialize_compressed(&mut proj_key_serial)
+        .expect("serialization should not fail");
+    let ct_final = Ciphertext {
+        proj_key_bytes: proj_key_serial,
+        rand_bytes: ct_raw.rand_bytes,
+        ciphertext: ct_raw.ciphertext,
+    };
+
+    serde_wasm_bindgen::to_value(&ct_final).unwrap()
+}
+
+#[wasm_bindgen]
+pub fn decrypt(
+    ckey_bytes_1: &[u8],
+    ckey_bytes_2: &[u8],
+    proj_key_bytes: &[u8],
+    rand_bytes: &[u8],
+    ciphertext: u8,
+    x: u32,
+    r_commit_bytes: &[u8],
+) -> u8 {
+    let u1 = G1Projective::deserialize_compressed(ckey_bytes_1)
+        .expect("deserialization should not fail");
+    let u2 = G2Projective::deserialize_compressed(ckey_bytes_2)
+        .expect("deserialization should not fail");
+    let ckey = linear_fc::CommitmentKey {
+        u1: vec![u1],
+        u2: vec![u2],
+    };
+
+    let proj_key = G2Projective::deserialize_compressed(proj_key_bytes)
+        .expect("deserialization should not fail");
+    let ct_raw = encrypt::Ciphertext {
+        proj_key,
+        rand_bytes: rand_bytes.to_vec(),
+        ciphertext,
+    };
+
+    let r_commit = ScalarField::deserialize_compressed(r_commit_bytes)
+        .expect("deserialization should not fail");
+    let opening = linear_fc::open(
+        &ckey,
+        &vec![ScalarField::from(x)],
+        r_commit,
+        &vec![ScalarField::from(1)],
+    );
+
+    encrypt::decrypt(&ckey, &ct_raw, &opening).unwrap()
+}
