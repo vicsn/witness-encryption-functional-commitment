@@ -17,11 +17,11 @@ pub fn encrypt_bit(
     beta: FunctionCoeffs,
     y: Scalar,
     message: bool,
-) -> Result<(bool, Scalar, Gt, Vec<u8>), &'static str> {
+) -> Result<(bool, Gt, Gt, Vec<u8>), &'static str> {
     let mut rng = rand::thread_rng();
 
     let hash_key = vec![Scalar::random(&mut rng); 1];
-    let projected_hash_key = hash_key[0];
+    let projected_hash_key = Gt::generator() * hash_key[0];
     let m = linear_fc::righthandside(ck.clone(), y, beta.len() as u64);
     let projected_hash_key_2 = m * hash_key[0];
     let theta = linear_fc::lefthandside(cm, ck.clone(), beta.clone(), beta.len() as u64);
@@ -41,14 +41,13 @@ pub fn decrypt_bit(
     ciphertext: bool,
     u: Scalar,
     beta: FunctionCoeffs,
-    projected_hash_key: Scalar,
+    projected_hash_key: Gt,
     projected_hash_key_2: Gt,
     r: Vec<u8>,
     d: (FunctionVars, Scalar),
 ) -> bool {
     let dl_of_opening = linear_fc::dl_of_opening(u, d.clone(), beta.clone());
-    let projected_hash =
-        projected_hash_key_2 + (Gt::generator() * (dl_of_opening * projected_hash_key));
+    let projected_hash = projected_hash_key_2 + (projected_hash_key * dl_of_opening);
     encrypt_message(ciphertext, projected_hash, r)
 }
 
