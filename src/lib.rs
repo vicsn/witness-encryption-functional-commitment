@@ -1,38 +1,32 @@
-#[allow(non_snake_case)]
 pub mod bls_elements;
-#[allow(non_snake_case)]
 pub mod linear_fc;
-#[allow(non_snake_case)]
-pub mod sphf;
-
-use bls_elements::BlsElement;
-use blstrs::G1Projective;
-use blstrs::G2Projective;
-use blstrs::Gt;
-use blstrs::Scalar;
 
 use bitvec::prelude::Msb0;
 use bitvec::view::BitViewSized;
-use group::Curve;
-use nalgebra::DMatrix;
-use sha3::digest::ExtendableOutput;
-use sha3::digest::Update;
-use sha3::digest::XofReader;
-use sha3::Shake256;
+use blstrs::{G1Projective, G2Projective, Gt, Scalar};
+use group::{ff::Field, Group};
+use linear_fc::{FunctionCoeffs, FunctionVars};
+use sha3::{
+    digest::{ExtendableOutput, Update, XofReader},
+    Shake256,
+};
 
-#[allow(non_snake_case)]
 pub fn encrypt_bit(
-    message: bool,
     ck: (Vec<G1Projective>, Vec<G2Projective>),
-    α: Vec<Scalar>,
+    cm: G1Projective,
+    beta: FunctionCoeffs,
     y: Scalar,
-) -> Result<(bool, DMatrix<BlsElement>, Vec<u8>, (Vec<Scalar>, Scalar)), &'static str> {
-    let (cm, d) = linear_fc::commit(ck.clone(), α.clone());
+    message: bool,
+) -> Result<(bool, Scalar, Gt, Vec<u8>), &'static str> {
+    let mut rng = rand::thread_rng();
 
-    let Γ = sphf::gen_Γ_linear_fc(cm, ck.clone());
-    let (hash_key, projected_hash_key) = sphf::gen_hash_keys(Γ);
-    let θ = sphf::gen_θ_linear_fc(ck.clone(), y);
-    let hash = sphf::gen_verifier_hash(hash_key, θ);
+    let hash_key = vec![Scalar::random(&mut rng); 1];
+    let projected_hash_key = hash_key[0];
+    let m = linear_fc::righthandside(ck.clone(), y, beta.len() as u64);
+    let projected_hash_key_2 = m * hash_key[0];
+    let theta = linear_fc::lefthandside(cm, ck.clone(), beta.clone(), beta.len() as u64);
+    let hash = theta * hash_key[0];
+
     let mut r: Vec<u8> = vec![];
     for _ in 0..linear_fc::L {
         let rand_byte = rand::random::<u8>();
@@ -40,32 +34,22 @@ pub fn encrypt_bit(
     }
     let ciphertext = encrypt_message(message, hash, r.clone());
 
-    Ok((ciphertext, projected_hash_key, r, d))
+    Ok((ciphertext, projected_hash_key, projected_hash_key_2, r))
 }
 
-#[allow(non_snake_case)]
 pub fn decrypt_bit(
     ciphertext: bool,
-    ck: (Vec<G1Projective>, Vec<G2Projective>),
-    α: Vec<Scalar>,
-    β: Vec<Scalar>,
-    projected_hash_key: DMatrix<BlsElement>,
+    u: Scalar,
+    beta: FunctionCoeffs,
+    projected_hash_key: Scalar,
+    projected_hash_key_2: Gt,
     r: Vec<u8>,
-    d: (Vec<Scalar>, Scalar),
+    d: (FunctionVars, Scalar),
 ) -> bool {
-    let opening = linear_fc::open(ck.clone(), d, β.clone());
-
-    // diverging from the WE_FC paper's implementation
-    let ADJUSTMENT_3 = ck.0[0].to_affine() * β[1] * α[0]; // G^(u*α1*β2)
-
-    let λ = sphf::gen_λ_linear_fc(ck.1[1] * β[0] + ck.1[0] * β[1], opening - ADJUSTMENT_3);
-    let res = projected_hash_key[0] * λ[0] - projected_hash_key[1] * λ[1];
-    if let BlsElement::Gt(projected_hash) = res {
-        let plaintext = encrypt_message(ciphertext, projected_hash, r.clone());
-        plaintext
-    } else {
-        panic!("mul_λ did not return an element from Gt");
-    }
+    let dl_of_opening = linear_fc::dl_of_opening(u, d.clone(), beta.clone());
+    let projected_hash =
+        projected_hash_key_2 + (Gt::generator() * (dl_of_opening * projected_hash_key));
+    encrypt_message(ciphertext, projected_hash, r)
 }
 
 fn encrypt_message(message: bool, hashkey: Gt, rand_bytes: Vec<u8>) -> bool {
@@ -80,7 +64,7 @@ fn encrypt_message(message: bool, hashkey: Gt, rand_bytes: Vec<u8>) -> bool {
         let rand_bits: bitvec::array::BitArray<u8, Msb0> = rand_bytes[i].into_bitarray();
         let h_bits: bitvec::array::BitArray<u8, Msb0> = hashedkey[i].into_bitarray();
         for j in 0..8 {
-            res_bit = res_bit ^ (rand_bits[j] & h_bits[j]);
+            res_bit = res_bit ^ (rand_bits[j] ^ h_bits[j]);
         }
     }
     let result = res_bit ^ message;
@@ -93,10 +77,20 @@ mod tests {
 
     fn encryption_decryption(message: bool) -> bool {
         let witness_length = 2;
-        let (ck, α, β, y) = linear_fc::setup_random(witness_length);
-        let (ciphertext, projected_hash_key, r, d) =
-            encrypt_bit(message, ck.clone(), α.clone(), y).unwrap();
-        decrypt_bit(ciphertext, ck, α, β, projected_hash_key, r, d)
+        let (ck, alpha, beta, y, u) = linear_fc::setup_random(witness_length);
+        let (cm, d) = linear_fc::commit(ck.clone(), alpha);
+
+        let (ciphertext, projected_hash_key, projected_hash_key_2, r) =
+            encrypt_bit(ck.clone(), cm, beta.clone(), y, message).unwrap();
+        decrypt_bit(
+            ciphertext,
+            u,
+            beta,
+            projected_hash_key,
+            projected_hash_key_2,
+            r,
+            d,
+        )
     }
 
     #[test]

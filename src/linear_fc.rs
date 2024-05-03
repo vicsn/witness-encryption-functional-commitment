@@ -1,138 +1,152 @@
-use blstrs::Bls12;
-use blstrs::G1Projective;
-use blstrs::G2Projective;
-use blstrs::Gt;
-use blstrs::Scalar;
-
-use group::ff::Field;
-use group::Curve;
-use group::Group;
+use blstrs::{Bls12, G1Projective, G2Projective, Gt, Scalar};
+use group::{ff::Field, Curve, Group};
 use pairing::Engine;
-use std::convert::TryInto;
 
 pub const L: u32 = 256; // Length of hashkey and random bits used to encrypt the message
 
+// TODO: CommitterKey.0[n+1] is the TrapdoorKey, which should be separate.
+pub type CommitterKey = (Vec<G1Projective>, Vec<G2Projective>);
+pub type FunctionVars = Vec<Scalar>;
+pub type FunctionCoeffs = Vec<Scalar>;
+pub type FunctionOutput = Scalar;
+pub type Commitment = G1Projective;
+
+/// Generate a randomly instantiated linear functional commitment scheme.
+/// Returns:
+/// - CommitterKey
+/// - private FunctionVars and public FunctionCoeffs, which represent the linear function
+/// - FunctionOutput, which is the result of \sum_i{FunctionVars[i]*FunctionCoeffs[i]}
+/// - the random scalar used to generate the CommitterKey
 pub fn setup_random(
     witness_length: u64,
 ) -> (
-    (Vec<G1Projective>, Vec<G2Projective>),
-    Vec<Scalar>,
-    Vec<Scalar>,
+    CommitterKey,
+    FunctionVars,
+    FunctionCoeffs,
+    FunctionOutput,
     Scalar,
 ) {
     let mut rng = rand::thread_rng();
+
+    // Compute scalars for the CommitterKey
     let u = Scalar::random(&mut rng);
-    let u1_gen = G1Projective::generator() * u;
-    let u2_gen = G2Projective::generator() * u;
-
-    let mut u1 = vec![];
-    let mut u2 = vec![];
-
-    // Create a list of Scalars with values [1,2n]
-    let mut scalars = vec![];
-    let mut base_uint = 1;
-    let mut base_scalar = Scalar::one();
-    for i in 1..1 + (2 * witness_length) {
-        if i == base_uint {
-            scalars.push(base_scalar);
-            base_uint = base_uint * 2;
-            base_scalar = base_scalar.double();
-        } else if i < base_uint {
-            let diff: usize = (base_uint - i).try_into().unwrap();
-            scalars.push(base_scalar - scalars[(diff - 1) as usize]);
-        } else if i > base_uint {
-            panic!("this should not be able to happen");
-        }
+    let mut scalars = Vec::with_capacity(2 * witness_length as usize);
+    for i in 1..(2 * witness_length) + 1 {
+        scalars.push(u.pow_vartime(&[i]))
     }
 
-    for i in 1..1 + (2 * witness_length) {
-        // NOTE: even though we don't use scalars[n+1], we add it to our scalars for developer-friendliness
-        u1.push(u1_gen * scalars[(i - 1) as usize]);
-    }
-    for i in 1..1 + witness_length {
-        u2.push(u2_gen * scalars[(i - 1) as usize]);
-    }
+    // Create CommitterKey
+    // TODO: u1[n+1] is the TrapdoorKey, which should be separate.
+    let u1 = (0..2 * witness_length as usize)
+        .into_iter()
+        .map(|i| G1Projective::generator() * scalars[i])
+        .collect();
+    let u2 = (0..witness_length as usize)
+        .into_iter()
+        .map(|i| G2Projective::generator() * scalars[i])
+        .collect();
 
-    let mut α = vec![];
-    let mut β = vec![];
-    let mut y = Scalar::zero();
+    // TODO: should just do random sampling.
+    let mut alpha = vec![]; // [1, 2, 1, 2, ...]
+    let mut beta = vec![]; // [2, 1, 2, 1, ...]
+    let mut y = Scalar::zero(); //
     for i in 0..witness_length {
         if i % 2 == 0 {
-            α.push(Scalar::one());
-            β.push(Scalar::one().double());
+            alpha.push(Scalar::one());
+            beta.push(Scalar::one().double());
         } else {
-            α.push(Scalar::one().double());
-            β.push(Scalar::one());
+            alpha.push(Scalar::one().double());
+            beta.push(Scalar::one());
         }
-        y += α[i as usize] * β[i as usize];
+        y += alpha[i as usize] * beta[i as usize];
     }
 
-    ((u1, u2), α, β, y)
+    ((u1, u2), alpha, beta, y, u)
 }
 
-pub fn commit(
-    ck: (Vec<G1Projective>, Vec<G2Projective>),
-    α: Vec<Scalar>,
-) -> (G1Projective, (Vec<Scalar>, Scalar)) {
-    let n = α.len();
+pub fn commit(ck: CommitterKey, alpha: FunctionVars) -> (Commitment, (FunctionVars, Scalar)) {
     let mut rng = rand::thread_rng();
     let r = Scalar::random(&mut rng);
     let r1_gen = G1Projective::generator() * r;
     let mut sum: G1Projective = G1Projective::identity();
-    for i in 0..n {
-        sum += ck.0[i as usize] * α[i as usize];
+    for i in 0..alpha.len() {
+        sum += ck.0[i] * alpha[i];
     }
-    (sum + r1_gen, (α, r))
+    let cm = sum + r1_gen;
+    (cm, (alpha, r))
 }
 
 pub fn open(
     ck: (Vec<G1Projective>, Vec<G2Projective>),
-    d: (Vec<Scalar>, Scalar),
-    β: Vec<Scalar>,
+    d: (FunctionVars, Scalar),
+    beta: FunctionCoeffs,
 ) -> G1Projective {
-    let n = β.len();
+    let n = beta.len();
     let mut sum = G1Projective::identity();
     for i in 0..n {
-        //let mut Wi = ck.0[(n-i-1) as usize]
-        let mut ADJUSTMENT_1 = G1Projective::generator();
-        if i == 0 {
-            ADJUSTMENT_1 = ADJUSTMENT_1 * Scalar::one().double();
-        }
-        let mut Wi = ADJUSTMENT_1 * d.1;
+        let mut w_i = ck.0[n - 1 - i] * d.1;
         for j in 0..n {
             if j != i {
-                Wi += ck.0[(n + j - i) as usize] * d.0[j as usize];
+                w_i += ck.0[n - i + j] * d.0[j];
             }
         }
-        sum += Wi * β[i as usize];
+        sum += w_i * beta[i];
     }
     sum
 }
 
-pub fn verification_pairings(
-    ck: (Vec<G1Projective>, Vec<G2Projective>),
-    cm: G1Projective,
-    op: G1Projective,
-    β: Vec<Scalar>,
-    y: Scalar,
-    n: u64,
-    α: Vec<Scalar>,
-) -> (Gt, Gt, Gt) {
-    let mut sumb = G2Projective::identity();
+pub fn dl_of_opening(u: Scalar, d: (FunctionVars, Scalar), beta: FunctionCoeffs) -> Scalar {
+    let n = beta.len();
+    let mut sum = Scalar::zero();
     for i in 0..n {
-        sumb += ck.1[(n - 1 - i) as usize] * β[i as usize];
+        let mut dl_of_w_i = u.pow_vartime(&[(n - i) as u64]) * d.1;
+        for j in 0..n {
+            if j != i {
+                dl_of_w_i += u.pow_vartime(&[(n + 1 - i + j) as u64]) * d.0[j];
+            }
+        }
+        sum += dl_of_w_i * beta[i];
     }
+    sum
+}
 
-    let ADJUSTMENT_2 = ck.1[0].to_affine(); // G^u instead of G
-    let ADJUSTMENT_3 = ck.0[0].to_affine() * β[1] * α[0]; // G^(u*α1*β2)
+pub fn dl_of_m(u: Scalar, n: u64, y: Scalar) -> Scalar {
+    u.pow_vartime(&[(n + 1) as u64]) * y
+}
 
-    let lefthandside = Bls12::pairing(&cm.to_affine(), &sumb.to_affine());
-    let righthandside1 = Bls12::pairing(&(op - ADJUSTMENT_3).to_affine(), &ADJUSTMENT_2);
-    let righthandside2 = Bls12::pairing(
+pub fn lefthandside(
+    cm: Commitment,
+    ck: (Vec<G1Projective>, Vec<G2Projective>),
+    beta: FunctionCoeffs,
+    n: u64,
+) -> Gt {
+    let mut sum = G2Projective::identity();
+    for i in 0..n {
+        sum += ck.1[(n - 1 - i) as usize] * beta[i as usize];
+    }
+    Bls12::pairing(&cm.to_affine(), &sum.to_affine())
+}
+
+pub fn righthandside(ck: (Vec<G1Projective>, Vec<G2Projective>), y: Scalar, n: u64) -> Gt {
+    Bls12::pairing(
         &ck.0[0].to_affine(),
         &(ck.1[(n - 1) as usize].to_affine() * y).to_affine(),
-    );
-    (lefthandside, righthandside1, righthandside2)
+    )
+}
+
+pub fn verify(
+    ck: (Vec<G1Projective>, Vec<G2Projective>),
+    cm: Commitment,
+    op: G1Projective,
+    beta: FunctionCoeffs,
+    y: Scalar,
+    n: u64,
+) -> bool {
+    let lefthandside = lefthandside(cm, ck.clone(), beta, n);
+    let righthandside = righthandside(ck.clone(), y, n);
+    let opening_pairing = Bls12::pairing(&op.to_affine(), &G2Projective::generator().to_affine());
+
+    lefthandside == opening_pairing + righthandside
 }
 
 #[cfg(test)]
@@ -140,38 +154,56 @@ mod test {
 
     use super::*;
 
+    #[test]
+    fn discreet_logs() {
+        for _ in 0..128 {
+            let n = 2;
+            let (ck, alpha, beta, y, u) = setup_random(n);
+            let (_cm, d) = commit(ck.clone(), alpha.clone());
+            let op = open(ck.clone(), d.clone(), beta.clone());
+            let dl_of_opening = dl_of_opening(u, d, beta.clone());
+            assert_eq!(G1Projective::generator() * dl_of_opening, op);
+
+            let righthandside = righthandside(ck.clone(), y, n);
+            let dl_of_m = dl_of_m(u, n, y);
+            assert_eq!(Gt::generator() * dl_of_m, righthandside);
+
+            let opening_pairing =
+                Bls12::pairing(&op.to_affine(), &G2Projective::generator().to_affine());
+            let op_t = Gt::generator() * dl_of_opening;
+            assert_eq!(opening_pairing, op_t);
+
+            let sum_pairing = opening_pairing + righthandside;
+            let sum_dl = dl_of_opening + dl_of_m;
+            assert_eq!(Gt::generator() * sum_dl, sum_pairing);
+        }
+    }
+
     fn do_test_fc(should_succeed: bool) -> bool {
         let n = 2;
-        let (ck, α, β, y) = setup_random(n);
-        let (cm, d) = commit(ck.clone(), α.clone());
-        let mut op = open(ck.clone(), d, β.clone());
+        let (ck, alpha, beta, y, _u) = setup_random(n);
+        let (cm, d) = commit(ck.clone(), alpha.clone());
+        let mut op = open(ck.clone(), d, beta.clone());
 
         if !should_succeed {
             let rng = rand::thread_rng();
             op = op * Scalar::random(rng);
         }
 
-        let (e1, e2, e3) = verification_pairings(ck.clone(), cm, op, β.clone(), y, n, α.clone());
-        // println!("e2: {:?}", e2);
-        // println!("e2*y: {:?}", e2*y);
-        let test_identity = G1Projective::identity();
-        println!("test_identity.double(): {:?}", test_identity.double());
-        println!(
-            "test_identity*Scalar::one().double(): {:?}",
-            test_identity * (Scalar::one().double())
-        );
-
-        Gt::identity() == (e1 - (e2 + e3))
-        // e1 == e2 + e3
+        verify(ck.clone(), cm, op, beta.clone(), y, n)
     }
 
     #[test]
     fn fc_success() {
-        assert_eq!(do_test_fc(true), true);
+        for _ in 0..128 {
+            assert_eq!(do_test_fc(true), true);
+        }
     }
 
     #[test]
     fn fc_failure() {
-        assert_eq!(do_test_fc(false), false);
+        for _ in 0..128 {
+            assert_eq!(do_test_fc(false), false);
+        }
     }
 }

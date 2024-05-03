@@ -1,3 +1,5 @@
+// This file implements tests and logic from Fabrice Ben Hamouda-Guichoux. Diverse modules and zero-knowledge. PhD thesis, E ́cole Normale Sup ́erieure, Paris, France, 2016.
+
 use blstrs::Bls12;
 use blstrs::G1Affine;
 use blstrs::G1Projective;

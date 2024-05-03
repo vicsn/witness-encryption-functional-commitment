@@ -1,6 +1,6 @@
 # Witness encryption for succinct functional commitments
 
-This library contains a small implementation of witness encryption for succinct functional commitments.
+This library contains a small implementation of witness encryption for succinct functional commitments for [Libert et al.’s FC](https://eprint.iacr.org/2016/766).
 
 > :exclamation: This library has not been audited and should not be used in production
 
